@@ -70,13 +70,14 @@ class PeriodicSensorData(SensorData):
             return None
 
 class BloodPressure(PeriodicSensorData):
-    def __init__(self, data, times, peakinterval=500):
+    def __init__(self, data, times, peakinterval, lowbound):
         self.peakinterval = peakinterval
+        self.lowbound = lowbound
         rawdata = Timeseries(data, timestamps=times, samplerate_Hz=1000, units="mmHg")
         super().__init__("Blood Pressure", rawdata)
     
     def process(self, data):
-        cutoff_Hz = 10000
+        cutoff_Hz = 12500
         nyquist_Hz = data.samplerate_Hz/2
         order = 1
         Wn = (cutoff_Hz/data.samplerate_Hz)/nyquist_Hz
@@ -85,7 +86,7 @@ class BloodPressure(PeriodicSensorData):
         return Timeseries(filtereddata, timestamps=data.times, samplerate_Hz=data.samplerate_Hz, units=data.units)
     
     def find_peaks(self,data):
-        peaks, properties = signal.find_peaks(data.values, distance=self.peakinterval, height=20)
+        peaks, properties = signal.find_peaks(data.values, distance=self.peakinterval, height=self.lowbound)
         if len(peaks)>0:
             return Timeseries(data.values[peaks], timestamps=data.times[peaks], samplerate_Hz=None)
         else:
@@ -133,7 +134,7 @@ class Trial:
     def __init__(self, subjectname, rawdata, param):
         
         print("+ Creating "+subjectname)
-        self.subjectname = subjectname
+        self.name = subjectname
                 
         print("    - Reading event data from file")        
         rawevents = np.loadtxt(param["eventfile"], dtype=str, delimiter=',', skiprows=2)
@@ -156,7 +157,7 @@ class Trial:
         
         
         print("    - Processing Blood Pressure data")
-        bp = BloodPressure(bp_data, times, param["bp_peakdist"])        
+        bp = BloodPressure(bp_data, times, param["bp_peakdist"], param["bp_lowbound"])        
         self.sensors[bp.name] = bp
 #        
 #        rsp = RSP(rsp_data, times)        
@@ -191,38 +192,46 @@ def generate_subjects(params, rawdata):
 
 
 
-params = {"Subject A": {"datafile":     "data/Subject A.txt",
+
+params = {    "Subject A": {"datafile":     "data/Subject A.txt",
                             "eventfile":    "events/SubjectA_events.csv",
-                            "bp_peakdist":  500},
+                            "bp_peakdist":  500,
+                            "bp_lowbound":  50},
 
               "Subject B": {"datafile":     "data/Subject B.txt",
                             "eventfile":    "events/SubjectB_events.csv",
-                            "bp_peakdist":  300},
+                            "bp_peakdist":  300,
+                            "bp_lowbound":  50},
                             
               "Subject C": {"datafile":     "data/Subject C.txt",
                             "eventfile":    "events/SubjectC_events.csv",
-                            "bp_peakdist":  500},
+                            "bp_peakdist":  500,
+                            "bp_lowbound":  80},
                             
               "Subject D": {"datafile":     "data/Subject D.txt",
                             "eventfile":    "events/SubjectD_events.csv",
-                            "bp_peakdist":  500},
+                            "bp_peakdist":  500,
+                            "bp_lowbound":  100},
                             
               "Subject E": {"datafile":     "data/Subject E.txt",
                             "eventfile":    "events/SubjectE_events.csv",
-                            "bp_peakdist":  500},
+                            "bp_peakdist":  500,
+                            "bp_lowbound":  20},
                             
               "Subject F": {"datafile":     "data/Subject F.txt",
                             "eventfile":    "events/SubjectF_events.csv",
-                            "bp_peakdist":  500},
+                            "bp_peakdist":  500,
+                            "bp_lowbound":  85},
                             
               "Subject G": {"datafile":     "data/Subject G.txt",
                             "eventfile":    "events/SubjectG_events.csv",
-                            "bp_peakdist":  500}
+                            "bp_peakdist":  500,
+                            "bp_lowbound":  65}
              }
-
 
 rawdata = load_data(params)
 subjects = generate_subjects(params, rawdata)
 for subject in subjects.values():
-    plt.figure()
+    plt.figure(subject.name+" Blood Pressure")
+    plt.clf()
     subject.sensors["Blood Pressure"].plot()
