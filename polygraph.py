@@ -117,6 +117,14 @@ class ElectrodermalActivity(SensorData):
     def __init__(self, data, times):
         rawdata = Timeseries(data, timestamps=times, samplerate_Hz=1000, units="microsiemens")
         super().__init__("Electrodermal Activity", rawdata)
+    
+    def process(self, data):
+        timestep = 0.001
+        timerange = np.arange(0,60,timestep)
+        decay = 10
+        weightingfunc = (np.exp(-timerange/decay)/decay)*timestep
+        filtereddata = signal.fftconvolve(data.values, weightingfunc)[:len(data.values)]
+        return Timeseries(filtereddata, timestamps=data.times, samplerate_Hz=data.samplerate_Hz, units=data.units)
 
 class Parameter():
     def __init__(self, sensordata):
@@ -146,11 +154,11 @@ class Trial:
         
         times = (rawdata[:,0]*60)
         bp_data = rawdata[:,1]
-#        rsp_data = self.rawdata[:,2]
-#        ppg_data = self.rawdata[:,3]
-#        mbp_data = self.rawdata[:,4]
-#        bpm_data = self.rawdata[:,5]
-#        eda_data = self.rawdata[:,6]
+#        rsp_data = rawdata[:,2]
+#        ppg_data = rawdata[:,3]
+#        mbp_data = rawdata[:,4]
+#        bpm_data = rawdata[:,5]
+        eda_data = rawdata[:,6]
         
         self.sensors = dict()
         self.parameters = dict()
@@ -171,9 +179,9 @@ class Trial:
 #        
 #        bpm = AvgPulse(bpm_data, times)        
 #        self.sensors[bpm.name] = bpm
-#        
-#        eda = ElectrodermalActivity(eda_data, times)        
-#        self.sensors[eda.name] = eda
+        
+        eda = ElectrodermalActivity(eda_data, times)        
+        self.sensors[eda.name] = eda
 
 
 def load_data(params):
@@ -232,6 +240,10 @@ params = {    "Subject A": {"datafile":     "data/Subject A.txt",
 rawdata = load_data(params)
 subjects = generate_subjects(params, rawdata)
 for subject in subjects.values():
-    plt.figure(subject.name+" Blood Pressure")
+#    plt.figure(subject.name+" Blood Pressure")
+#    plt.clf()
+#    subject.sensors["Blood Pressure"].plot()
+   
+    plt.figure(subject.name+" EDA")
     plt.clf()
-    subject.sensors["Blood Pressure"].plot()
+    subject.sensors["Electrodermal Activity"].plot()
