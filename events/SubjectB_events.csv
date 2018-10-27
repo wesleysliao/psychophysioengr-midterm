@@ -1,5 +1,5 @@
 Subject B Event Summary,,
-                   Time,Segment 1,Append
+Time (min),Segment 1,Append
 1.047,FBLS,User Type 1
 2.521,FBLE,User Type 1
 2.601,BLS,User Type 2
