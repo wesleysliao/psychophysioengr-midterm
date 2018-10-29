@@ -150,7 +150,7 @@ class Trial:
         print("    - Processing event data")
         self.events = dict()
         for i in range(len(rawevents)):
-            self.events[rawevents[i, 1]]=rawevents[i,0].astype(float)
+            self.events[rawevents[i, 1]]=(rawevents[i,0].astype(float))*60.0 #convert minutes to seconds
         
         times = (rawdata[:,0]*60)
         bp_data = rawdata[:,1]
@@ -182,7 +182,10 @@ class Trial:
         
         eda = ElectrodermalActivity(eda_data, times)        
         self.sensors[eda.name] = eda
-
+        
+    def plot_events(self, y):
+        for event in self.events:
+            plt.annotate(event, (self.events[event], y))
 
 def load_data(params):
     print("+ Loading trial data")
@@ -247,3 +250,4 @@ for subject in subjects.values():
     plt.figure(subject.name+" EDA")
     plt.clf()
     subject.sensors["Electrodermal Activity"].plot()
+    subject.plot_events(10)
