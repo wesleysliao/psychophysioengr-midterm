@@ -127,20 +127,57 @@ class ElectrodermalActivity(SensorData):
         return Timeseries(filtereddata, timestamps=data.times, samplerate_Hz=data.samplerate_Hz, units=data.units)
 
 class Parameter():
-    def __init__(self, sensordata):
-        self.data = self.extract(sensordata.cleandata)
-    def extract(self, data):
-        return np.diff(data)
+    def __init__(self, name, sensor):
+        self.name = name
+        self.rawdata = self.extract(sensor)
+    def extract(self, sensor):
+        return sensor.cleandata
+
+class SystolicPressure(Parameter):
+    def extract(self, sensor):
+        return Timeseries(sensor.peaks.values,
+                          timestamps=sensor.peaks.times,
+                          samplerate_Hz=None,
+                          units=sensor.peaks.units)
+class IBI(Parameter):
+    def extract(self, sensor):
+        return Timeseries(np.diff(sensor.peaks.values),
+                          timestamps=sensor.peaks.times[1:],
+                          samplerate_Hz=None,
+                          units=sensor.peaks.units)
     
 class Test():
-    def __init__(self, Trials):
-        pass
-    def procedure():
-        pass
+    def __init__(self, trials):
+        self.scores = dict()
+        for subject in trials:
+            self.scores[subject] = self.procedure(trials[subject])
+            
+    def procedure(self, trial):
+        return 1
 
+class PrePostRel(Test):    
+    def __init__(self, trials, events, delay, signal):
+        self.events = events
+        self.delay = delay
+        self.signal = signal
+        super().__init__(trials)
+        
+    def procedure(self, trial):
+        scores = dict()
+        for event in self.events:
+            try:
+                trigger = trial.events[event]
+                prerange = np.arange(trigger-self.delay, trigger, 0.1)
+                postrange = np.arange(trigger, trigger+self.delay, 0.1)
+                pre = np.sum(trial.signals[self.signal].rawdata.interp(prerange))
+                post = np.sum(trial.signals[self.signal].rawdata.interp(postrange))
+                scores[event] = (pre/post).astype(float)
+            except KeyError:
+                scores[event] = None
+        return scores
+        
 class Trial:
     def __init__(self, subjectname, rawdata, param):
-        
         print("+ Creating "+subjectname)
         self.name = subjectname
                 
@@ -160,28 +197,29 @@ class Trial:
 #        bpm_data = rawdata[:,5]
         eda_data = rawdata[:,6]
         
-        self.sensors = dict()
-        self.parameters = dict()
-        
+        self.signals = dict()        
         
         print("    - Processing Blood Pressure data")
         bp = BloodPressure(bp_data, times, param["bp_peakdist"], param["bp_lowbound"])        
-        self.sensors[bp.name] = bp
+        self.signals[bp.name] = bp
+        
+        sbp = SystolicPressure("Systolic Pressure", self.signals[bp.name])
+        self.signals[sbp.name] = sbp
 #        
 #        rsp = RSP(rsp_data, times)        
-#        self.sensors[rsp.name] = rsp
+#        self.signals[rsp.name] = rsp
 #        
 #        ppg = PPG(ppg_data, times)        
-#        self.sensors[ppg.name] = ppg
+#        self.signals[ppg.name] = ppg
 #        
 #        mbp = AvgBloodPressure(mbp_data, times)        
-#        self.sensors[mbp.name] = mbp
+#        self.signals[mbp.name] = mbp
 #        
 #        bpm = AvgPulse(bpm_data, times)        
-#        self.sensors[bpm.name] = bpm
+#        self.signals[bpm.name] = bpm
         
         eda = ElectrodermalActivity(eda_data, times)        
-        self.sensors[eda.name] = eda
+        self.signals[eda.name] = eda
         
     def plot_events(self, y):
         for event in self.events:
@@ -201,7 +239,17 @@ def generate_subjects(params, rawdata):
         subjects[subject] = Trial(subject, rawdata[subject], params[subject])
     return subjects
 
-
+##############################################################################
+# Section copied from A. Coady posted on stackoverflow, accessed 2018.10.29:
+# https://stackoverflow.com/questions/268272/getting-key-with-maximum-value-in-dictionary#280156
+def keywithmaxval(d):
+     """ a) create a list of the dict's keys and values; 
+         b) return the key with the max value"""  
+     v=list(d.values())
+     k=list(d.keys())
+     return k[v.index(max(v))]
+# End of copied section
+###############################################################################
 
 
 params = {    "Subject A": {"datafile":     "data/Subject A.txt",
@@ -240,14 +288,64 @@ params = {    "Subject A": {"datafile":     "data/Subject A.txt",
                             "bp_lowbound":  65}
              }
 
+eventsets = {   "Mailbox": ["4B","5B","6B","7B","8B","9B","1C","2C"],
+             "Bag": ["8C","9C","1D","2D","3D","4D","5D","6D"],
+             "Cash": ["4B","5B","6B","7B","8C","9C","1D","2D"],
+             "Check": ["8B","9B","1C","2C","3D","4D","5D","6D"],
+             "$20": ["5B", "9C", "9B", "4D"],
+             "$41": ["6B", "1D", "1C", "5D"],
+             "$470.16": ["7B","2D","2C","6D"]
+         }
+
+events_pertinent = set()
+for eventset in eventsets:
+    events_pertinent.update(eventsets[eventset])
+
 rawdata = load_data(params)
 subjects = generate_subjects(params, rawdata)
-for subject in subjects.values():
+
+tests = { "Pre-Post EDA": PrePostRel(subjects, events_pertinent, 10, "Electrodermal Activity"),
+          "Pre-Post Systolic Pressure": PrePostRel(subjects, events_pertinent, 30, "Systolic Pressure")}
+
+
+test_scores = dict()
+for test in tests:
+    print("")
+    print("From "+test+" test results:")
+    test_scores[test] = dict()
+    for subject in subjects:
+        test_scores[test][subject] = dict()
+        for eventset in eventsets:
+            score = 0.0
+            for event in eventsets[eventset]:
+                if tests[test].scores[subject][event] is not None:
+                    score += tests[test].scores[subject][event]
+            test_scores[test][subject][eventset] = score
+
+        place = "Bag"
+        if test_scores[test][subject]["Mailbox"] > test_scores[test][subject]["Bag"]:
+            place = "Mailbox"
+        item = "Check"
+        if test_scores[test][subject]["Cash"] > test_scores[test][subject]["Check"]:
+            item = "Cash"
+            
+        value = "$20"
+        if ((test_scores[test][subject]["$41"] > test_scores[test][subject]["$20"]) or 
+            (test_scores[test][subject]["$470.16"] > test_scores[test][subject]["$20"])):
+            value = "$41"
+            if test_scores[test][subject]["$470.16"] > test_scores[test][subject]["$41"]:
+                value = "$470.16"
+                
+        print("    "+subject+" stole "+item+" with value of "+value+" from "+place)
+        
+#for subject in subjects.values(): 
 #    plt.figure(subject.name+" Blood Pressure")
 #    plt.clf()
-#    subject.sensors["Blood Pressure"].plot()
+#    subject.signals["Blood Pressure"].plot()
+#    subject.signals["Systolic Pressure"].data.plot()
    
-    plt.figure(subject.name+" EDA")
-    plt.clf()
-    subject.sensors["Electrodermal Activity"].plot()
-    subject.plot_events(10)
+#    plt.figure(subject.name+" EDA")
+#    plt.clf()
+#    subject.signals["Electrodermal Activity"].plot()
+    
+#    subject.plot_events(70)
