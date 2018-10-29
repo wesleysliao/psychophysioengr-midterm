@@ -187,6 +187,23 @@ class IBI(Parameter):
                           timestamps=sensor.peaks.times[1:],
                           samplerate_Hz=None,
                           units=sensor.peaks.units)
+        
+class RespRMS(Parameter):
+    def extract(self, sensor):
+        sampleperiod = 0.001
+        fs = 1000
+        seconds = 60
+        overlap = 0.8
+        timerange = np.arange(sensor.cleandata.times[0], sensor.cleandata.times[-1], sampleperiod)
+        f, t, Sxx = signal.spectrogram(sensor.cleandata.interp(timerange), fs, nperseg=seconds*fs, noverlap=seconds*fs*overlap)
+        plt.figure()
+        plt.pcolormesh(Sxx)
+        plt.ylim([0, 50])
+        
+        return Timeseries(np.sqrt(np.amax(Sxx, axis=0)),
+                          timestamps=t,
+                          samplerate_Hz=fs,
+                          units="RMS Volts")
     
 class Test():
     def __init__(self, trials):
@@ -248,8 +265,13 @@ class Trial:
         sbp = SystolicPressure("Systolic Pressure", self.signals[bp.name])
         self.signals[sbp.name] = sbp
         
+        
+        print("    - Processing RSP data")
         rsp = RSP(rsp_data, times)        
         self.signals[rsp.name] = rsp
+        
+        rrms = RespRMS("RespRMS", self.signals[rsp.name])
+        self.signals[rrms.name] = rrms
 #        
 #        ppg = PPG(ppg_data, times)        
 #        self.signals[ppg.name] = ppg
@@ -260,6 +282,8 @@ class Trial:
 #        bpm = AvgPulse(bpm_data, times)        
 #        self.signals[bpm.name] = bpm
         
+        
+        print("    - Processing EDA data")
         eda = ElectrodermalActivity(eda_data, times)        
         self.signals[eda.name] = eda
         
@@ -383,4 +407,7 @@ for subject in subjects.values():
     plt.clf()
     subject.signals["RSP"].plot()
     
-    subject.plot_events(0)
+    plt.figure(subject.name+" RSP RMS")
+    plt.clf()
+    subject.signals["RespRMS"].rawdata.plot()
+    subject.plot_events(2)
