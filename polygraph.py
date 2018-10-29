@@ -3,6 +3,34 @@ from scipy import fftpack, signal, interpolate
 import matplotlib.pyplot as plt
 
 
+##############################################################################
+# Section copied from A. Coady posted on stackoverflow, accessed 2018.10.29:
+# https://stackoverflow.com/questions/268272/getting-key-with-maximum-value-in-dictionary#280156
+def keywithmaxval(d):
+     """ a) create a list of the dict's keys and values; 
+         b) return the key with the max value"""  
+     v=list(d.values())
+     k=list(d.keys())
+     return k[v.index(max(v))]
+# End of copied section
+###############################################################################
+     
+ 
+def lowpass(data, cutoff_Hz, order):
+    nyquist_Hz = data.samplerate_Hz/2
+    Wn = (cutoff_Hz/data.samplerate_Hz)/nyquist_Hz
+    b, a = signal.butter(order, Wn, btype='low', analog=False)
+    filtereddata = signal.lfilter(b, a, data.values)
+    return Timeseries(filtereddata, timestamps=data.times, samplerate_Hz=data.samplerate_Hz, units=data.units)
+
+def notch(data, notch_Hz, bandwidth):
+    nyquist_Hz = data.samplerate_Hz/2
+    w0 = notch_Hz/nyquist_Hz
+    quality = w0/bandwidth
+    b, a = signal.iirnotch(w0, quality)
+    filtereddata = signal.lfilter(b, a, data.values)
+    return Timeseries(filtereddata, timestamps=data.times, samplerate_Hz=data.samplerate_Hz, units=data.units)
+
 class Timeseries:
     def __init__(self, datapoints, timestamps=None, samplerate_Hz=1.0, starttime=0.0, units=None):
         self.values = datapoints
@@ -73,17 +101,15 @@ class BloodPressure(PeriodicSensorData):
     def __init__(self, data, times, peakinterval, lowbound):
         self.peakinterval = peakinterval
         self.lowbound = lowbound
+    
+        
         rawdata = Timeseries(data, timestamps=times, samplerate_Hz=1000, units="mmHg")
         super().__init__("Blood Pressure", rawdata)
     
     def process(self, data):
         cutoff_Hz = 12500
-        nyquist_Hz = data.samplerate_Hz/2
         order = 1
-        Wn = (cutoff_Hz/data.samplerate_Hz)/nyquist_Hz
-        b, a = signal.butter(order, Wn, btype='low', analog=False)
-        filtereddata = signal.lfilter(b, a, data.values)
-        return Timeseries(filtereddata, timestamps=data.times, samplerate_Hz=data.samplerate_Hz, units=data.units)
+        return lowpass(data, cutoff_Hz, order)
     
     def find_peaks(self,data):
         peaks, properties = signal.find_peaks(data.values, distance=self.peakinterval, height=self.lowbound)
@@ -97,6 +123,22 @@ class RSP(PeriodicSensorData):
     def __init__(self, data, times):
         rawdata = Timeseries(data, timestamps=times, samplerate_Hz=1000, units="volts")
         super().__init__("RSP", rawdata)
+    
+    def process(self, data):
+        cutoff_Hz = 100
+        order = 1
+        lp = lowpass(data, cutoff_Hz, order)
+        
+        notch_Hz = 0.0001
+        bandwidth = 0.0001
+        return notch(lp, notch_Hz, bandwidth) 
+    
+    def find_peaks(self,data):
+        peaks, properties = signal.find_peaks(data.values, height=0)
+        if len(peaks)>0:
+            return Timeseries(data.values[peaks], timestamps=data.times[peaks], samplerate_Hz=None)
+        else:
+            return None
         
 class PPG(PeriodicSensorData):
     def __init__(self, data, times):
@@ -191,7 +233,7 @@ class Trial:
         
         times = (rawdata[:,0]*60)
         bp_data = rawdata[:,1]
-#        rsp_data = rawdata[:,2]
+        rsp_data = rawdata[:,2]
 #        ppg_data = rawdata[:,3]
 #        mbp_data = rawdata[:,4]
 #        bpm_data = rawdata[:,5]
@@ -205,9 +247,9 @@ class Trial:
         
         sbp = SystolicPressure("Systolic Pressure", self.signals[bp.name])
         self.signals[sbp.name] = sbp
-#        
-#        rsp = RSP(rsp_data, times)        
-#        self.signals[rsp.name] = rsp
+        
+        rsp = RSP(rsp_data, times)        
+        self.signals[rsp.name] = rsp
 #        
 #        ppg = PPG(ppg_data, times)        
 #        self.signals[ppg.name] = ppg
@@ -239,17 +281,7 @@ def generate_subjects(params, rawdata):
         subjects[subject] = Trial(subject, rawdata[subject], params[subject])
     return subjects
 
-##############################################################################
-# Section copied from A. Coady posted on stackoverflow, accessed 2018.10.29:
-# https://stackoverflow.com/questions/268272/getting-key-with-maximum-value-in-dictionary#280156
-def keywithmaxval(d):
-     """ a) create a list of the dict's keys and values; 
-         b) return the key with the max value"""  
-     v=list(d.values())
-     k=list(d.keys())
-     return k[v.index(max(v))]
-# End of copied section
-###############################################################################
+
 
 
 params = {    "Subject A": {"datafile":     "data/Subject A.txt",
@@ -301,12 +333,11 @@ events_pertinent = set()
 for eventset in eventsets:
     events_pertinent.update(eventsets[eventset])
 
-rawdata = load_data(params)
+#rawdata = load_data(params)
 subjects = generate_subjects(params, rawdata)
 
 tests = { "Pre-Post EDA": PrePostRel(subjects, events_pertinent, 10, "Electrodermal Activity"),
           "Pre-Post Systolic Pressure": PrePostRel(subjects, events_pertinent, 30, "Systolic Pressure")}
-
 
 test_scores = dict()
 for test in tests:
@@ -338,7 +369,7 @@ for test in tests:
                 
         print("    "+subject+" stole "+item+" with value of "+value+" from "+place)
         
-#for subject in subjects.values(): 
+for subject in subjects.values(): 
 #    plt.figure(subject.name+" Blood Pressure")
 #    plt.clf()
 #    subject.signals["Blood Pressure"].plot()
@@ -348,4 +379,8 @@ for test in tests:
 #    plt.clf()
 #    subject.signals["Electrodermal Activity"].plot()
     
-#    subject.plot_events(70)
+    plt.figure(subject.name+" RSP")
+    plt.clf()
+    subject.signals["RSP"].plot()
+    
+    subject.plot_events(0)
