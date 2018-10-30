@@ -1,6 +1,7 @@
 import numpy as np
 from scipy import fftpack, signal, interpolate
 import matplotlib.pyplot as plt
+import csv
 
 
 ##############################################################################
@@ -375,7 +376,6 @@ eventsets = {   "Mailbox": ["4B","5B","6B","7B","8B","9B","1C","2C"],
              "Bag": ["8C","9C","1D","2D","3D","4D","5D","6D"],
              "Cash": ["4B","5B","6B","7B","8C","9C","1D","2D"],
              "Check": ["8B","9B","1C","2C","3D","4D","5D","6D"],
-             "$20": ["5B", "9C", "9B", "4D"],
              "$41": ["6B", "1D", "1C", "5D"],
              "$470.16": ["7B","2D","2C","6D"]
          }
@@ -395,9 +395,10 @@ tests = { "Pre-Post EDA": PrePostRel(subjects, events_pertinent, 10, "Electroder
           "Baseline-Post Resp RMS": BasePostRel(subjects, events_pertinent, 10, "RespRMS")
           }
 
-test_weights = { "Pre-Post EDA":                     2.0,
-                 "Pre-Post Systolic Pressure":       1.0,
-                 "Pre-Post Resp RMS":               -1.5,
+test_weights = { "Pre-Post EDA":                     3.0,
+                 "Pre-Post Systolic Pressure":       1.5,
+                 "Pre-Post Resp RMS":               -2.25,
+                 
                  "Baseline-Post EDA":                2.0,
                  "Baseline-Post Systolic Pressure":  1.0,
                  "Baseline-Post Resp RMS":          -1.0,}
@@ -452,21 +453,102 @@ for subject in subjects:
         
     print("    "+subject+" stole "+item+" from "+place)
   
-for subject in subjects.values(): 
-    plt.figure(subject.name+" Blood Pressure")
-    plt.clf()
-    subject.signals["Blood Pressure"].plot()
-    subject.signals["Systolic Pressure"].cleandata.plot()
-    subject.plot_events(70)
+#for subject in subjects.values(): 
+#    plt.figure(subject.name+" Blood Pressure")
+#    plt.clf()
+#    subject.signals["Blood Pressure"].plot()
+#    subject.signals["Systolic Pressure"].cleandata.plot()
+#    subject.plot_events(70)
+#    
+#    plt.figure(subject.name+" EDA")
+#    plt.clf()
+#    subject.signals["Electrodermal Activity"].plot()
+#    subject.plot_events(10)
+#        
+#    plt.figure(subject.name+" RSP")
+#    plt.clf()
+#    subject.signals["RSP"].cleandata.plot()
+#    plt.plot(subject.signals["RSP"].peaks.times, subject.signals["RSP"].peaks.values/np.sqrt(2))
+#    subject.signals["RespRMS"].rawdata.plot()
+#    subject.plot_events(2)
+#    
     
-    plt.figure(subject.name+" EDA")
-    plt.clf()
-    subject.signals["Electrodermal Activity"].plot()
-    subject.plot_events(10)
-        
-    plt.figure(subject.name+" RSP")
-    plt.clf()
-    subject.signals["RSP"].cleandata.plot()
-    plt.plot(subject.signals["RSP"].peaks.times, subject.signals["RSP"].peaks.values/np.sqrt(2))
-    subject.signals["RespRMS"].rawdata.plot()
-    subject.plot_events(2)
+    
+    
+    
+    
+    
+    
+file = open('./results.csv','w', newline='')
+wr = csv.writer(file)
+wr.writerow(["== Direct Test Results =="])
+for test in tests:
+    wr.writerow([])
+    wr.writerow([test])
+    wr.writerow([" "]+list(tests[test].scores["Subject A"].keys()))
+    for subject in subjects:
+        wr.writerow([subject]+list(tests[test].scores[subject].values()))
+
+wr.writerow([])
+wr.writerow([])
+wr.writerow(["== Question Summed Test Results =="])
+for test in test_scores:
+    wr.writerow([])
+    wr.writerow([test])
+    wr.writerow([" "]+list(test_scores[test]["Subject A"].keys()))
+    for subject in subjects:
+        wr.writerow([subject]+list(test_scores[test][subject].values()))
+
+wr.writerow([])
+wr.writerow([])
+wr.writerow(["== All Test Aggregate Results =="])
+wr.writerow([])
+wr.writerow([test])
+wr.writerow([" "]+list(aggregate["Subject A"].keys()))
+for subject in subjects:
+    wr.writerow([subject]+list(aggregate[subject].values()))
+
+file.flush()
+file.close()
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
