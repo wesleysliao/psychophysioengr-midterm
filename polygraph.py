@@ -395,10 +395,10 @@ tests = { "Pre-Post EDA": PrePostRel(subjects, events_pertinent, 10, "Electroder
           "Baseline-Post Resp RMS": BasePostRel(subjects, events_pertinent, 10, "RespRMS")
           }
 
-test_weights = { "Pre-Post EDA":                     1.0,
+test_weights = { "Pre-Post EDA":                     2.0,
                  "Pre-Post Systolic Pressure":       1.0,
-                 "Pre-Post Resp RMS":               -1.0,
-                 "Baseline-Post EDA":                1.0,
+                 "Pre-Post Resp RMS":               -1.5,
+                 "Baseline-Post EDA":                2.0,
                  "Baseline-Post Systolic Pressure":  1.0,
                  "Baseline-Post Resp RMS":          -1.0,}
 
@@ -419,18 +419,12 @@ for test in tests:
         place = "Bag"
         if test_scores[test][subject]["Mailbox"] > test_scores[test][subject]["Bag"]:
             place = "Mailbox"
-        item = "Check"
-        if test_scores[test][subject]["Cash"] > test_scores[test][subject]["Check"]:
-            item = "Cash"
-            
-        value = "$20"
-        if ((test_scores[test][subject]["$41"] > test_scores[test][subject]["$20"]) or 
-            (test_scores[test][subject]["$470.16"] > test_scores[test][subject]["$20"])):
-            value = "$41"
-            if test_scores[test][subject]["$470.16"] > test_scores[test][subject]["$41"]:
-                value = "$470.16"
+        item = "a Check for $470.16"
+        if (test_scores[test][subject]["Cash"]+test_scores[test][subject]["$41"]
+             > test_scores[test][subject]["Check"]+test_scores[test][subject]["$470.16"]):
+            item = "$41 in Cash"
                 
-        print("    "+subject+" stole "+item+" with value of "+value+" from "+place)
+        print("    "+subject+" stole "+item+" from "+place)
 
 print("")
 print("Aggregate Test Significance:")
@@ -451,18 +445,12 @@ for subject in subjects:
     place = "Bag"
     if aggregate[subject]["Mailbox"] > aggregate[subject]["Bag"]:
         place = "Mailbox"
-    item = "Check"
-    if aggregate[subject]["Cash"] > aggregate[subject]["Check"]:
-        item = "Cash"
+    item = "a Check for $470.16"
+    if (aggregate[subject]["Cash"]+aggregate[subject]["$41"]
+         > aggregate[subject]["Check"]+aggregate[subject]["$470.16"]):
+        item = "$41 Cash"
         
-    value = "$20"
-    if ((aggregate[subject]["$41"] > aggregate[subject]["$20"]) or 
-        (aggregate[subject]["$470.16"] > aggregate[subject]["$20"])):
-        value = "$41"
-        if aggregate[subject]["$470.16"] > aggregate[subject]["$41"]:
-            value = "$470.16"
-            
-    print("    "+subject+" stole "+item+" with value of "+value+" from "+place)
+    print("    "+subject+" stole "+item+" from "+place)
   
 for subject in subjects.values(): 
     plt.figure(subject.name+" Blood Pressure")
