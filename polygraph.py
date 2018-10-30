@@ -172,8 +172,11 @@ class Parameter():
     def __init__(self, name, sensor):
         self.name = name
         self.rawdata = self.extract(sensor)
+        self.cleandata = self.process(self.rawdata)
     def extract(self, sensor):
         return sensor.cleandata
+    def process(self, data):
+        return data
 
 class SystolicPressure(Parameter):
     def extract(self, sensor):
@@ -229,11 +232,33 @@ class PrePostRel(Test):
         for event in self.events:
             try:
                 trigger = trial.events[event]
-                prerange = np.arange(trigger-self.delay, trigger, 0.1)
-                postrange = np.arange(trigger, trigger+self.delay, 0.1)
-                pre = np.sum(trial.signals[self.signal].rawdata.interp(prerange))
-                post = np.sum(trial.signals[self.signal].rawdata.interp(postrange))
-                scores[event] = (pre/post).astype(float)-1.0
+                prerange = np.arange(trigger-self.delay, trigger, 0.01)
+                postrange = np.arange(trigger, trigger+self.delay, 0.01)
+                pre = np.sum(trial.signals[self.signal].cleandata.interp(prerange))
+                post = np.sum(trial.signals[self.signal].cleandata.interp(postrange))
+                scores[event] = (post/pre).astype(float)-1.0
+            except KeyError:
+                scores[event] = None
+        return scores
+    
+class BasePostRel(PrePostRel):
+    def procedure(self, trial):
+        scores = dict()
+        
+        baseline_start = trial.events["BLS"]
+        if  trial.signals[self.signal].cleandata.times[0] > trial.events["BLS"]:
+            baseline_start = trial.signals[self.signal].cleandata.times[0]
+            
+        baseline_end = trial.events["BLE"]
+        baseline_range = np.arange(baseline_start, baseline_end, 0.01)
+        base = np.sum(trial.signals[self.signal].cleandata.interp(baseline_range))/(baseline_end-baseline_start)
+        
+        for event in self.events:
+            try:
+                trigger = trial.events[event]
+                postrange = np.arange(trigger, trigger+self.delay, 0.01)
+                post = np.sum(trial.signals[self.signal].cleandata.interp(postrange))/self.delay
+                scores[event] = (post/base).astype(float)-1.0
             except KeyError:
                 scores[event] = None
         return scores
@@ -284,7 +309,6 @@ class Trial:
 #        
 #        bpm = AvgPulse(bpm_data, times)        
 #        self.signals[bpm.name] = bpm
-        
         
         print("    - Processing EDA data")
         eda = ElectrodermalActivity(eda_data, times)        
@@ -365,11 +389,18 @@ subjects = generate_subjects(params, rawdata)
 
 tests = { "Pre-Post EDA": PrePostRel(subjects, events_pertinent, 10, "Electrodermal Activity"),
           "Pre-Post Systolic Pressure": PrePostRel(subjects, events_pertinent, 20, "Systolic Pressure"),
-          "Pre-Post Resp RMS": PrePostRel(subjects, events_pertinent, 10, "RespRMS")}
+          "Pre-Post Resp RMS": PrePostRel(subjects, events_pertinent, 10, "RespRMS"),
+          "Baseline-Post EDA": BasePostRel(subjects, events_pertinent, 10, "Electrodermal Activity"),
+          "Baseline-Post Systolic Pressure": BasePostRel(subjects, events_pertinent, 20, "Systolic Pressure"),
+          "Baseline-Post Resp RMS": BasePostRel(subjects, events_pertinent, 10, "RespRMS")
+          }
 
-test_weights = { "Pre-Post EDA":            1.0,
-              "Pre-Post Systolic Pressure": 1.0,
-              "Pre-Post Resp RMS":          -1.0}
+test_weights = { "Pre-Post EDA":                     1.0,
+                 "Pre-Post Systolic Pressure":       1.0,
+                 "Pre-Post Resp RMS":               -1.0,
+                 "Baseline-Post EDA":                1.0,
+                 "Baseline-Post Systolic Pressure":  1.0,
+                 "Baseline-Post Resp RMS":          -1.0,}
 
 test_scores = dict()
 for test in tests:
@@ -402,9 +433,11 @@ for test in tests:
         print("    "+subject+" stole "+item+" with value of "+value+" from "+place)
 
 print("")
-print("Weighting Test Significance:")
+print("Aggregate Test Significance:")
 for test in test_weights:
     print(test, test_weights[test])
+    
+print("")
 print("Aggregating test results:")
 aggregate = dict()
 for subject in subjects:
@@ -412,7 +445,7 @@ for subject in subjects:
     for eventset in eventsets:
         score = 0
         for test in tests:
-            score += test_scores[test][subject][eventset]*test_weights[test]
+            score += test_scores[test][subject][eventset]
         aggregate[subject][eventset] = score
         
     place = "Bag"
@@ -431,19 +464,21 @@ for subject in subjects:
             
     print("    "+subject+" stole "+item+" with value of "+value+" from "+place)
   
-#for subject in subjects.values(): 
-#    plt.figure(subject.name+" Blood Pressure")
-#    plt.clf()
-#    subject.signals["Blood Pressure"].plot()
-#    subject.signals["Systolic Pressure"].data.plot()
-   
-#    plt.figure(subject.name+" EDA")
-#    plt.clf()
-#    subject.signals["Electrodermal Activity"].plot()
+for subject in subjects.values(): 
+    plt.figure(subject.name+" Blood Pressure")
+    plt.clf()
+    subject.signals["Blood Pressure"].plot()
+    subject.signals["Systolic Pressure"].cleandata.plot()
+    subject.plot_events(70)
     
-#    plt.figure(subject.name+" RSP")
-#    plt.clf()
-#    subject.signals["RSP"].cleandata.plot()
-#    plt.plot(subject.signals["RSP"].peaks.times, subject.signals["RSP"].peaks.values/np.sqrt(2))
-#    subject.signals["RespRMS"].rawdata.plot()
-#    subject.plot_events(2)
+    plt.figure(subject.name+" EDA")
+    plt.clf()
+    subject.signals["Electrodermal Activity"].plot()
+    subject.plot_events(10)
+        
+    plt.figure(subject.name+" RSP")
+    plt.clf()
+    subject.signals["RSP"].cleandata.plot()
+    plt.plot(subject.signals["RSP"].peaks.times, subject.signals["RSP"].peaks.values/np.sqrt(2))
+    subject.signals["RespRMS"].rawdata.plot()
+    subject.plot_events(2)
