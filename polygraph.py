@@ -192,15 +192,18 @@ class RespRMS(Parameter):
     def extract(self, sensor):
         sampleperiod = 0.001
         fs = 1000
-        seconds = 60
-        overlap = 0.8
+        seconds = 20
+        overlap = 0.95
         timerange = np.arange(sensor.cleandata.times[0], sensor.cleandata.times[-1], sampleperiod)
-        f, t, Sxx = signal.spectrogram(sensor.cleandata.interp(timerange), fs, nperseg=seconds*fs, noverlap=seconds*fs*overlap)
-        plt.figure()
-        plt.pcolormesh(Sxx)
-        plt.ylim([0, 50])
-        
-        return Timeseries(np.sqrt(np.amax(Sxx, axis=0)),
+        f, t, Sxx = signal.spectrogram(sensor.cleandata.interp(timerange),
+                                       fs,
+                                       nperseg=seconds*fs,
+                                       noverlap=seconds*fs*overlap,
+                                       scaling='spectrum')
+#        plt.figure()
+#        plt.pcolormesh(Sxx)
+#        plt.ylim([0, seconds])
+        return Timeseries(np.sqrt(np.sum(Sxx, axis=0)),
                           timestamps=t,
                           samplerate_Hz=fs,
                           units="RMS Volts")
@@ -230,7 +233,7 @@ class PrePostRel(Test):
                 postrange = np.arange(trigger, trigger+self.delay, 0.1)
                 pre = np.sum(trial.signals[self.signal].rawdata.interp(prerange))
                 post = np.sum(trial.signals[self.signal].rawdata.interp(postrange))
-                scores[event] = (pre/post).astype(float)
+                scores[event] = (pre/post).astype(float)-1.0
             except KeyError:
                 scores[event] = None
         return scores
@@ -361,7 +364,12 @@ for eventset in eventsets:
 subjects = generate_subjects(params, rawdata)
 
 tests = { "Pre-Post EDA": PrePostRel(subjects, events_pertinent, 10, "Electrodermal Activity"),
-          "Pre-Post Systolic Pressure": PrePostRel(subjects, events_pertinent, 30, "Systolic Pressure")}
+          "Pre-Post Systolic Pressure": PrePostRel(subjects, events_pertinent, 20, "Systolic Pressure"),
+          "Pre-Post Resp RMS": PrePostRel(subjects, events_pertinent, 10, "RespRMS")}
+
+test_weights = { "Pre-Post EDA":            1.0,
+              "Pre-Post Systolic Pressure": 1.0,
+              "Pre-Post Resp RMS":          -1.0}
 
 test_scores = dict()
 for test in tests:
@@ -374,7 +382,7 @@ for test in tests:
             score = 0.0
             for event in eventsets[eventset]:
                 if tests[test].scores[subject][event] is not None:
-                    score += tests[test].scores[subject][event]
+                    score += (tests[test].scores[subject][event])*test_weights[test]
             test_scores[test][subject][eventset] = score
 
         place = "Bag"
@@ -392,8 +400,38 @@ for test in tests:
                 value = "$470.16"
                 
         print("    "+subject+" stole "+item+" with value of "+value+" from "+place)
+
+print("")
+print("Weighting Test Significance:")
+for test in test_weights:
+    print(test, test_weights[test])
+print("Aggregating test results:")
+aggregate = dict()
+for subject in subjects:
+    aggregate[subject] = dict()
+    for eventset in eventsets:
+        score = 0
+        for test in tests:
+            score += test_scores[test][subject][eventset]*test_weights[test]
+        aggregate[subject][eventset] = score
         
-for subject in subjects.values(): 
+    place = "Bag"
+    if aggregate[subject]["Mailbox"] > aggregate[subject]["Bag"]:
+        place = "Mailbox"
+    item = "Check"
+    if aggregate[subject]["Cash"] > aggregate[subject]["Check"]:
+        item = "Cash"
+        
+    value = "$20"
+    if ((aggregate[subject]["$41"] > aggregate[subject]["$20"]) or 
+        (aggregate[subject]["$470.16"] > aggregate[subject]["$20"])):
+        value = "$41"
+        if aggregate[subject]["$470.16"] > aggregate[subject]["$41"]:
+            value = "$470.16"
+            
+    print("    "+subject+" stole "+item+" with value of "+value+" from "+place)
+  
+#for subject in subjects.values(): 
 #    plt.figure(subject.name+" Blood Pressure")
 #    plt.clf()
 #    subject.signals["Blood Pressure"].plot()
@@ -403,11 +441,9 @@ for subject in subjects.values():
 #    plt.clf()
 #    subject.signals["Electrodermal Activity"].plot()
     
-    plt.figure(subject.name+" RSP")
-    plt.clf()
-    subject.signals["RSP"].plot()
-    
-    plt.figure(subject.name+" RSP RMS")
-    plt.clf()
-    subject.signals["RespRMS"].rawdata.plot()
-    subject.plot_events(2)
+#    plt.figure(subject.name+" RSP")
+#    plt.clf()
+#    subject.signals["RSP"].cleandata.plot()
+#    plt.plot(subject.signals["RSP"].peaks.times, subject.signals["RSP"].peaks.values/np.sqrt(2))
+#    subject.signals["RespRMS"].rawdata.plot()
+#    subject.plot_events(2)
