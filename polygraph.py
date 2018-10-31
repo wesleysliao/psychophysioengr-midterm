@@ -15,8 +15,11 @@ def keywithmaxval(d):
      return k[v.index(max(v))]
 # End of copied section
 ###############################################################################
-     
  
+    
+###############################################################################
+# Filters
+#     
 def lowpass(data, cutoff_Hz, order):
     nyquist_Hz = data.samplerate_Hz/2
     Wn = (cutoff_Hz/data.samplerate_Hz)/nyquist_Hz
@@ -31,7 +34,13 @@ def notch(data, notch_Hz, bandwidth):
     b, a = signal.iirnotch(w0, quality)
     filtereddata = signal.lfilter(b, a, data.values)
     return Timeseries(filtereddata, timestamps=data.times, samplerate_Hz=data.samplerate_Hz, units=data.units)
+#
+###############################################################################
 
+
+###############################################################################
+# Core Classes
+#     
 class Timeseries:
     def __init__(self, datapoints, timestamps=None, samplerate_Hz=1.0, starttime=0.0, units=None):
         self.values = datapoints
@@ -97,7 +106,13 @@ class PeriodicSensorData(SensorData):
             return Timeseries(data.values[peaks], timestamps=data.times[peaks], samplerate_Hz=None)
         else:
             return None
+#
+###############################################################################
 
+
+###############################################################################
+# Sensor Data Classes
+#     
 class BloodPressure(PeriodicSensorData):
     def __init__(self, data, times, peakinterval, lowbound):
         self.peakinterval = peakinterval
@@ -142,9 +157,25 @@ class RSP(PeriodicSensorData):
             return None
         
 class PPG(PeriodicSensorData):
-    def __init__(self, data, times):
+    def __init__(self, data, times, peakinterval, lowbound):
+        self.peakinterval = peakinterval
+        self.lowbound = lowbound
+        
         rawdata = Timeseries(data, timestamps=times, samplerate_Hz=1000, units="volts")
         super().__init__("PPG", rawdata)
+
+    
+    def process(self, data):
+        cutoff_Hz = 1000
+        order = 1
+        return lowpass(data, cutoff_Hz, order)
+    
+    def find_peaks(self,data):
+        peaks, properties = signal.find_peaks(data.values, distance=self.peakinterval, height=self.lowbound)
+        if len(peaks)>0:
+            return Timeseries(data.values[peaks], timestamps=data.times[peaks], samplerate_Hz=None)
+        else:
+            return None
 
 class AvgBloodPressure(SensorData):
     def __init__(self, data, times):
@@ -167,8 +198,17 @@ class ElectrodermalActivity(SensorData):
         decay = 10
         weightingfunc = (np.exp(-timerange/decay)/decay)*timestep
         filtereddata = signal.fftconvolve(data.values, weightingfunc)[:len(data.values)]
+        notch_Hz = 0.001
+        bandwidth = 0.001
+        return notch(data, notch_Hz, bandwidth)
         return Timeseries(filtereddata, timestamps=data.times, samplerate_Hz=data.samplerate_Hz, units=data.units)
+#
+###############################################################################
 
+
+###############################################################################
+# Parameter Classes
+#            
 class Parameter():
     def __init__(self, name, sensor):
         self.name = name
@@ -178,7 +218,7 @@ class Parameter():
         return sensor.cleandata
     def process(self, data):
         return data
-
+    
 class SystolicPressure(Parameter):
     def extract(self, sensor):
         return Timeseries(sensor.peaks.values,
@@ -187,10 +227,18 @@ class SystolicPressure(Parameter):
                           units=sensor.peaks.units)
 class IBI(Parameter):
     def extract(self, sensor):
-        return Timeseries(np.diff(sensor.peaks.values),
+        return Timeseries(np.diff(sensor.peaks.times),
                           timestamps=sensor.peaks.times[1:],
                           samplerate_Hz=None,
                           units=sensor.peaks.units)
+    def process(self, data):
+        dropped = Timeseries(data.values[np.where(data.values<1.2)],
+                          timestamps=data.times[np.where(data.values<1.2)],
+                          samplerate_Hz=None,
+                          units=data.units)
+        timerange= np.arange(dropped.times[0], dropped.times[-1], 0.01)
+        resampled = Timeseries(dropped.interp(timerange), timerange, samplerate_Hz=100, units="seconds")
+        return lowpass(resampled, 5, 1)
         
 class RespRMS(Parameter):
     def extract(self, sensor):
@@ -211,7 +259,14 @@ class RespRMS(Parameter):
                           timestamps=t,
                           samplerate_Hz=fs,
                           units="RMS Volts")
-    
+#
+###############################################################################
+
+
+###############################################################################
+# Tests
+#
+        
 class Test():
     def __init__(self, trials):
         self.scores = dict()
@@ -221,49 +276,91 @@ class Test():
     def procedure(self, trial):
         return 1
 
-class PrePostRel(Test):    
-    def __init__(self, trials, events, delay, signal):
+class PrePostCompare(Test):    
+    def __init__(self, trials, events, offset, delay, signal):
         self.events = events
+        self.offset = offset
         self.delay = delay
         self.signal = signal
+        self.sampleperiod = 0.01
         super().__init__(trials)
         
     def procedure(self, trial):
         scores = dict()
         for event in self.events:
             try:
-                trigger = trial.events[event]
-                prerange = np.arange(trigger-self.delay, trigger, 0.01)
-                postrange = np.arange(trigger, trigger+self.delay, 0.01)
-                pre = np.sum(trial.signals[self.signal].cleandata.interp(prerange))
-                post = np.sum(trial.signals[self.signal].cleandata.interp(postrange))
-                scores[event] = (post/pre).astype(float)-1.0
+                pre = trial.signals[self.signal].cleandata.interp(self.prerange(trial, event))
+                post = trial.signals[self.signal].cleandata.interp(self.postrange(trial, event))
+                scores[event] = self.compare(self.scorepre(pre), self.scorepost(post))
             except KeyError:
                 scores[event] = None
         return scores
     
-class BasePostRel(PrePostRel):
-    def procedure(self, trial):
-        scores = dict()
-        
+    def prerange(self, trial, event):
+         trigger = trial.events[event]+self.offset
+         return np.arange(trigger-self.delay, trigger, self.sampleperiod)
+         
+    def postrange(self, trial, event):
+         trigger = trial.events[event]+self.offset
+         return np.arange(trigger, trigger+self.delay, self.sampleperiod)
+     
+    def scorepre(self, pre):
+        return np.sum(pre)
+    
+    def scorepost(self, post):
+        return self.scorepre(post)
+    
+    def compare(self, pre, post):
+        return (pre-post).astype(float)
+    
+class BasePostCompare(PrePostCompare):
+    def prereange(self, trial, event):
         baseline_start = trial.events["BLS"]
         if  trial.signals[self.signal].cleandata.times[0] > trial.events["BLS"]:
-            baseline_start = trial.signals[self.signal].cleandata.times[0]
-            
+            baseline_start = trial.signals[self.signal].cleandata.times[0]    
         baseline_end = trial.events["BLE"]
-        baseline_range = np.arange(baseline_start, baseline_end, 0.01)
-        base = np.sum(trial.signals[self.signal].cleandata.interp(baseline_range))/(baseline_end-baseline_start)
-        
-        for event in self.events:
-            try:
-                trigger = trial.events[event]
-                postrange = np.arange(trigger, trigger+self.delay, 0.01)
-                post = np.sum(trial.signals[self.signal].cleandata.interp(postrange))/self.delay
-                scores[event] = (post/base).astype(float)-1.0
-            except KeyError:
-                scores[event] = None
-        return scores
-        
+        return np.arange(baseline_start, baseline_end, self.sampleperiod)
+
+class PrePostMax(PrePostCompare):
+    def scorepre(self, pre):
+        return np.mean(pre)
+    def scorepost(self, post):
+        return np.max(post)
+    
+class PrePostMin(PrePostCompare):
+    def scorepre(self, pre):
+        return np.mean(pre)
+    def scorepost(self, post):
+        return np.min(post)
+    
+class PrePostRel(PrePostCompare):
+    def compare(self, pre, post):
+        return (pre/post).astype(float)-1.0
+    
+
+class BasePostMax(BasePostCompare):
+    def scorepre(self, pre):
+        return np.mean(pre)
+    def scorepost(self, post):
+        return np.max(post)
+
+class BasePostMin(BasePostCompare):
+    def scorepre(self, pre):
+        return np.mean(pre)
+    def scorepost(self, post):
+        return np.min(post)
+
+class BasePostRel(BasePostCompare):
+    def compare(self, pre, post):
+        return (pre/post).astype(float)-1.0
+           
+#
+###############################################################################
+
+
+###############################################################################
+# Trial Class
+#     
 class Trial:
     def __init__(self, subjectname, rawdata, param):
         print("+ Creating "+subjectname)
@@ -280,7 +377,7 @@ class Trial:
         times = (rawdata[:,0]*60)
         bp_data = rawdata[:,1]
         rsp_data = rawdata[:,2]
-#        ppg_data = rawdata[:,3]
+        ppg_data = rawdata[:,3]
 #        mbp_data = rawdata[:,4]
 #        bpm_data = rawdata[:,5]
         eda_data = rawdata[:,6]
@@ -301,10 +398,14 @@ class Trial:
         
         rrms = RespRMS("RespRMS", self.signals[rsp.name])
         self.signals[rrms.name] = rrms
-#        
-#        ppg = PPG(ppg_data, times)        
-#        self.signals[ppg.name] = ppg
-#        
+        
+        print("    - Processing PPG data")
+        ppg = PPG(ppg_data, times,  param["ppg_peakdist"], param["ppg_lowbound"])        
+        self.signals[ppg.name] = ppg
+        
+        ibi = IBI("IBI", self.signals[ppg.name])
+        self.signals[ibi.name] = ibi
+        
 #        mbp = AvgBloodPressure(mbp_data, times)        
 #        self.signals[mbp.name] = mbp
 #        
@@ -332,44 +433,61 @@ def generate_subjects(params, rawdata):
     for subject in iter(params):
         subjects[subject] = Trial(subject, rawdata[subject], params[subject])
     return subjects
+#
+###############################################################################
 
 
-
-
+###############################################################################
+# Experiment Parameters
+#  
 params = {    "Subject A": {"datafile":     "data/Subject A.txt",
                             "eventfile":    "events/SubjectA_events.csv",
                             "bp_peakdist":  500,
-                            "bp_lowbound":  50},
+                            "bp_lowbound":  50,
+                            "ppg_peakdist":  500,
+                            "ppg_lowbound":  0},
 
               "Subject B": {"datafile":     "data/Subject B.txt",
                             "eventfile":    "events/SubjectB_events.csv",
                             "bp_peakdist":  300,
-                            "bp_lowbound":  50},
+                            "bp_lowbound":  50,
+                            "ppg_peakdist":  300,
+                            "ppg_lowbound":  0},
                             
               "Subject C": {"datafile":     "data/Subject C.txt",
                             "eventfile":    "events/SubjectC_events.csv",
                             "bp_peakdist":  500,
-                            "bp_lowbound":  80},
+                            "bp_lowbound":  80,
+                            "ppg_peakdist":  500,
+                            "ppg_lowbound":  0},
                             
               "Subject D": {"datafile":     "data/Subject D.txt",
                             "eventfile":    "events/SubjectD_events.csv",
                             "bp_peakdist":  500,
-                            "bp_lowbound":  100},
+                            "bp_lowbound":  100,
+                            "ppg_peakdist":  500,
+                            "ppg_lowbound":  0},
                             
               "Subject E": {"datafile":     "data/Subject E.txt",
                             "eventfile":    "events/SubjectE_events.csv",
                             "bp_peakdist":  500,
-                            "bp_lowbound":  20},
+                            "bp_lowbound":  20,
+                            "ppg_peakdist":  500,
+                            "ppg_lowbound":  0},
                             
               "Subject F": {"datafile":     "data/Subject F.txt",
                             "eventfile":    "events/SubjectF_events.csv",
                             "bp_peakdist":  500,
-                            "bp_lowbound":  85},
+                            "bp_lowbound":  85,
+                            "ppg_peakdist":  500,
+                            "ppg_lowbound":  0},
                             
               "Subject G": {"datafile":     "data/Subject G.txt",
                             "eventfile":    "events/SubjectG_events.csv",
                             "bp_peakdist":  500,
-                            "bp_lowbound":  65}
+                            "bp_lowbound":  65,
+                            "ppg_peakdist":  500,
+                            "ppg_lowbound":  0}
              }
 
 eventsets = {   "Mailbox": ["4B","5B","6B","7B","8B","9B","1C","2C"],
@@ -387,22 +505,41 @@ for eventset in eventsets:
 #rawdata = load_data(params)
 subjects = generate_subjects(params, rawdata)
 
-tests = { "Pre-Post EDA": PrePostRel(subjects, events_pertinent, 10, "Electrodermal Activity"),
-          "Pre-Post Systolic Pressure": PrePostRel(subjects, events_pertinent, 20, "Systolic Pressure"),
-          "Pre-Post Resp RMS": PrePostRel(subjects, events_pertinent, 10, "RespRMS"),
-          "Baseline-Post EDA": BasePostRel(subjects, events_pertinent, 10, "Electrodermal Activity"),
-          "Baseline-Post Systolic Pressure": BasePostRel(subjects, events_pertinent, 20, "Systolic Pressure"),
-          "Baseline-Post Resp RMS": BasePostRel(subjects, events_pertinent, 10, "RespRMS")
+quesdelay = 3
+tests = { 
+          "Pre-Post EDA": PrePostRel(subjects, events_pertinent, quesdelay+1,  8, "Electrodermal Activity"),
+          "Pre-Post Systolic Pressure": PrePostRel(subjects, events_pertinent, quesdelay+3, 11, "Systolic Pressure"),
+          "Pre-Post Resp RMS": PrePostRel(subjects, events_pertinent, quesdelay+1, 20, "RespRMS"),
+          "Pre-Post IBI": PrePostRel(subjects, events_pertinent, quesdelay+4, 10, "IBI"),
+
+#          "Pre-Post Binary EDA": PrePostBin(subjects, events_pertinent, 1, 8, "Electrodermal Activity", 0.05),
+#          "Pre-Post Binary Systolic Pressure": PrePostBin(subjects, events_pertinent, 20, "Systolic Pressure", 0.05),
+#          "Pre-Post Binary IBI": PrePostBin(subjects, events_pertinent, 4, 10, "IBI", 0.05),
+
+          "Baseline-Post EDA": BasePostRel(subjects, events_pertinent, quesdelay+1, 8, "Electrodermal Activity"),
+          "Baseline-Post Systolic Pressure": BasePostRel(subjects, events_pertinent, quesdelay+3, 11, "Systolic Pressure"),
+          "Baseline-Post Resp RMS": BasePostRel(subjects, events_pertinent, quesdelay+1, 20, "RespRMS")
           }
 
-test_weights = { "Pre-Post EDA":                     3.0,
-                 "Pre-Post Systolic Pressure":       1.5,
-                 "Pre-Post Resp RMS":               -2.25,
+test_weights = { "Pre-Post EDA":                         1.0,
+                 "Pre-Post Systolic Pressure":           1.0,
+                 "Pre-Post Resp RMS":                   -1.0,
+                 "Pre-Post IBI":                        1.0,
                  
-                 "Baseline-Post EDA":                2.0,
-                 "Baseline-Post Systolic Pressure":  1.0,
-                 "Baseline-Post Resp RMS":          -1.0,}
+                 "Pre-Post Binary EDA":                  1.0,
+                 "Pre-Post Binary Systolic Pressure":    1.0,
+                 "Pre-Post Binary IBI":                 1.0,
+                 
+                 "Baseline-Post EDA":                    1.0,
+                 "Baseline-Post Systolic Pressure":      1.0,
+                 "Baseline-Post Resp RMS":              -1.0}
+#
+###############################################################################
 
+
+###############################################################################
+# Main Program
+#  
 test_scores = dict()
 for test in tests:
     print("")
@@ -452,7 +589,13 @@ for subject in subjects:
         item = "$41 Cash"
         
     print("    "+subject+" stole "+item+" from "+place)
-  
+#
+###############################################################################
+
+
+###############################################################################
+# Plots
+#  
 #for subject in subjects.values(): 
 #    plt.figure(subject.name+" Blood Pressure")
 #    plt.clf()
@@ -471,14 +614,24 @@ for subject in subjects:
 #    plt.plot(subject.signals["RSP"].peaks.times, subject.signals["RSP"].peaks.values/np.sqrt(2))
 #    subject.signals["RespRMS"].rawdata.plot()
 #    subject.plot_events(2)
-#    
-    
-    
-    
-    
-    
-    
-    
+#   
+#    plt.figure(subject.name+" PPG")
+#    plt.clf()
+#    subject.signals["PPG"].plot()
+#    subject.plot_events(10)
+#     
+#    plt.figure(subject.name+" IBI")
+#    plt.clf()
+#    subject.signals["IBI"].rawdata.plot()
+#    subject.signals["IBI"].cleandata.plot()
+#    subject.plot_events(0)    
+#
+###############################################################################
+
+
+###############################################################################
+# .csv output
+#  
 file = open('./results.csv','w', newline='')
 wr = csv.writer(file)
 wr.writerow(["== Direct Test Results =="])
@@ -510,45 +663,5 @@ for subject in subjects:
 
 file.flush()
 file.close()
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
+#
+###############################################################################
