@@ -1,5 +1,5 @@
 import numpy as np
-from scipy import fftpack, signal, interpolate
+from scipy import fftpack, signal, interpolate, stats
 import matplotlib.pyplot as plt
 import csv
 
@@ -259,6 +259,15 @@ class RespRMS(Parameter):
                           timestamps=t,
                           samplerate_Hz=fs,
                           units="RMS Volts")
+
+class Zscore(Parameter):
+    def extract(self, sensor):
+        return Timeseries(
+                    stats.zscore(sensor.cleandata.values),
+                    timestamps=sensor.cleandata.times,
+                    samplerate_Hz = sensor.cleandata.samplerate_Hz,
+                    units = "StdDevs"
+                )
 #
 ###############################################################################
 
@@ -314,7 +323,7 @@ class PrePostCompare(Test):
         return (pre-post).astype(float)
     
 class BasePostCompare(PrePostCompare):
-    def prereange(self, trial, event):
+    def prerange(self, trial, event):
         baseline_start = trial.events["BLS"]
         if  trial.signals[self.signal].cleandata.times[0] > trial.events["BLS"]:
             baseline_start = trial.signals[self.signal].cleandata.times[0]    
@@ -337,7 +346,6 @@ class PrePostRel(PrePostCompare):
     def compare(self, pre, post):
         return (pre/post).astype(float)-1.0
     
-
 class BasePostMax(BasePostCompare):
     def scorepre(self, pre):
         return np.mean(pre)
@@ -371,6 +379,8 @@ class Trial:
         
         print("    - Processing event data")
         self.events = dict()
+    
+        
         for i in range(len(rawevents)):
             self.events[rawevents[i, 1]]=(rawevents[i,0].astype(float))*60.0 #convert minutes to seconds
         
@@ -415,6 +425,12 @@ class Trial:
         print("    - Processing EDA data")
         eda = ElectrodermalActivity(eda_data, times)        
         self.signals[eda.name] = eda
+        
+        
+        self.signals["SysPress Z-Score"] = Zscore("SysPress Z-Score", self.signals[sbp.name])
+        self.signals["RespRMS Z-Score"] = Zscore("RespRMS Z-Score", self.signals[rrms.name])
+        self.signals["IBI Z-Score"] = Zscore("IBI Z-Score", self.signals[ibi.name])
+        self.signals["EDA Z-Score"] = Zscore("EDA Z-Score", self.signals[eda.name])
         
     def plot_events(self, y):
         for event in self.events:
@@ -502,15 +518,36 @@ events_pertinent = set()
 for eventset in eventsets:
     events_pertinent.update(eventsets[eventset])
 
-#rawdata = load_data(params)
+rawdata = load_data(params)
 subjects = generate_subjects(params, rawdata)
 
+
+
+
 quesdelay = 3
+
+eda_delay = 1
+eda_period = 8
+
+syspress_delay = 3
+syspress_period = 11
+
+resprms_delay = 1
+resprms_period = 20
+
+ibi_delay = 4
+ibi_period = 10
+
 tests = { 
           "Pre-Post EDA": PrePostRel(subjects, events_pertinent, quesdelay+1,  8, "Electrodermal Activity"),
           "Pre-Post Systolic Pressure": PrePostRel(subjects, events_pertinent, quesdelay+3, 11, "Systolic Pressure"),
           "Pre-Post Resp RMS": PrePostRel(subjects, events_pertinent, quesdelay+1, 20, "RespRMS"),
           "Pre-Post IBI": PrePostRel(subjects, events_pertinent, quesdelay+4, 10, "IBI"),
+          
+          "Pre-Post EDA Z-Score": PrePostRel(subjects, events_pertinent, quesdelay+1,  8, "EDA Z-Score"),
+          "Pre-Post Systolic Pressure Z-Score": PrePostRel(subjects, events_pertinent, quesdelay+3, 11, "SysPress Z-Score"),
+          "Pre-Post Resp RMS Z-Score": PrePostRel(subjects, events_pertinent, quesdelay+1, 20, "RespRMS Z-Score"),
+          "Pre-Post IBI Z-Score": PrePostRel(subjects, events_pertinent, quesdelay+4, 10, "IBI Z-Score"),
 
 #          "Pre-Post Binary EDA": PrePostBin(subjects, events_pertinent, 1, 8, "Electrodermal Activity", 0.05),
 #          "Pre-Post Binary Systolic Pressure": PrePostBin(subjects, events_pertinent, 20, "Systolic Pressure", 0.05),
@@ -518,21 +555,28 @@ tests = {
 
           "Baseline-Post EDA": BasePostRel(subjects, events_pertinent, quesdelay+1, 8, "Electrodermal Activity"),
           "Baseline-Post Systolic Pressure": BasePostRel(subjects, events_pertinent, quesdelay+3, 11, "Systolic Pressure"),
-          "Baseline-Post Resp RMS": BasePostRel(subjects, events_pertinent, quesdelay+1, 20, "RespRMS")
+          "Baseline-Post Resp RMS": BasePostRel(subjects, events_pertinent, quesdelay+1, 20, "RespRMS"),
+          "Baseline-Post IBI": BasePostRel(subjects, events_pertinent, quesdelay+4, 10, "IBI"),
           }
 
 test_weights = { "Pre-Post EDA":                         1.0,
                  "Pre-Post Systolic Pressure":           1.0,
                  "Pre-Post Resp RMS":                   -1.0,
-                 "Pre-Post IBI":                        1.0,
+                 "Pre-Post IBI":                         1.0,
                  
+                 "Pre-Post EDA Z-Score":                 1.0,
+                 "Pre-Post Systolic Pressure Z-Score":   1.0,
+                 "Pre-Post Resp RMS Z-Score":            1.0,
+                 "Pre-Post IBI Z-Score":                 1.0,
+
                  "Pre-Post Binary EDA":                  1.0,
                  "Pre-Post Binary Systolic Pressure":    1.0,
                  "Pre-Post Binary IBI":                 1.0,
                  
                  "Baseline-Post EDA":                    1.0,
                  "Baseline-Post Systolic Pressure":      1.0,
-                 "Baseline-Post Resp RMS":              -1.0}
+                 "Baseline-Post Resp RMS":              -1.0,
+                 "Baseline-Post IBI":                    1.0}
 #
 ###############################################################################
 
@@ -602,7 +646,7 @@ for subject in subjects:
 #    subject.signals["Blood Pressure"].plot()
 #    subject.signals["Systolic Pressure"].cleandata.plot()
 #    subject.plot_events(70)
-#    
+    
 #    plt.figure(subject.name+" EDA")
 #    plt.clf()
 #    subject.signals["Electrodermal Activity"].plot()
@@ -624,7 +668,11 @@ for subject in subjects:
 #    plt.clf()
 #    subject.signals["IBI"].rawdata.plot()
 #    subject.signals["IBI"].cleandata.plot()
-#    subject.plot_events(0)    
+#    subject.plot_events(0)
+#
+#    plt.figure(subject.name+"IBI Z-Score")
+#    subject.signals["IBI Z-Score"].cleandata.plot()
+#    subject.plot_events(0)
 #
 ###############################################################################
 
