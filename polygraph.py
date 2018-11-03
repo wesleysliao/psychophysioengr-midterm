@@ -200,7 +200,7 @@ class ElectrodermalActivity(SensorData):
         filtereddata = signal.fftconvolve(data.values, weightingfunc)[:len(data.values)]
         notch_Hz = 0.001
         bandwidth = 0.001
-        return notch(data, notch_Hz, bandwidth)
+#        return notch(data, notch_Hz, bandwidth)
         return Timeseries(filtereddata, timestamps=data.times, samplerate_Hz=data.samplerate_Hz, units=data.units)
 #
 ###############################################################################
@@ -321,6 +321,31 @@ class PrePostCompare(Test):
     
     def compare(self, pre, post):
         return (pre-post).astype(float)
+
+class Threshold(PrePostCompare):
+    def __init__(self, trials, events, offset, delay, signal, threshold):
+        self.threshold = threshold
+        super().__init__(trials, events, offset, delay, signal)
+    def scorepost(self, post):
+        return np.mean(post)
+    def compare(self, pre, post):
+        return np.sign(post)*(np.abs(post)>self.threshold)
+    
+class ThreshPos(Threshold):
+    def compare(self, pre, post):
+        return 1*(post>self.threshold)  
+    
+class ThreshNeg(Threshold):
+    def compare(self, pre, post):
+        return 1*(post<self.threshold)
+
+class ThreshMax(Threshold):
+    def scorepost(self, post):
+        return np.max(post)
+    
+class ThreshMin(ThreshMax):
+    def scorepost(self, post):
+        return np.max(post)
     
 class BasePostCompare(PrePostCompare):
     def prerange(self, trial, event):
@@ -521,7 +546,6 @@ for eventset in eventsets:
 subjects = generate_subjects(params, rawdata)
 
 
-
 quesdelay = 3
 
 eda_delay = 1
@@ -536,26 +560,38 @@ resprms_period = 20
 ibi_delay = 4
 ibi_period = 10
 
-tests = { 
-          "Pre-Post EDA": PrePostRel(subjects, events_pertinent, quesdelay+eda_delay,  eda_period, "Electrodermal Activity"),
-          "Pre-Post Systolic Pressure": PrePostRel(subjects, events_pertinent, quesdelay+syspress_delay, syspress_period, "Systolic Pressure"),
-          "Pre-Post Resp RMS": PrePostRel(subjects, events_pertinent, quesdelay+resprms_delay, resprms_period, "RespRMS"),
-          "Pre-Post IBI": PrePostRel(subjects, events_pertinent, quesdelay+ibi_delay, ibi_period, "IBI"),
-          
-          "Pre-Post EDA Z-Score": PrePostRel(subjects, events_pertinent, quesdelay+1,  eda_period, "EDA Z-Score"),
-          "Pre-Post Systolic Pressure Z-Score": PrePostRel(subjects, events_pertinent, quesdelay+3, syspress_period, "SysPress Z-Score"),
-          "Pre-Post Resp RMS Z-Score": PrePostRel(subjects, events_pertinent, quesdelay+1, resprms_period, "RespRMS Z-Score"),
-          "Pre-Post IBI Z-Score": PrePostRel(subjects, events_pertinent, quesdelay+4, ibi_period, "IBI Z-Score"),
+eda_zthresh = 0.4
+syspress_zthresh = -0.1
+resprms_zthresh = -0.5
+ibi_zthresh = -0.1
 
-          "Baseline-Post EDA": BasePostRel(subjects, events_pertinent, quesdelay+eda_delay, eda_period, "Electrodermal Activity"),
-          "Baseline-Post Systolic Pressure": BasePostRel(subjects, events_pertinent, quesdelay+syspress_delay, syspress_period, "Systolic Pressure"),
-          "Baseline-Post Resp RMS": BasePostRel(subjects, events_pertinent, quesdelay+resprms_delay, resprms_period, "RespRMS"),
-          "Baseline-Post IBI": BasePostRel(subjects, events_pertinent, quesdelay+ibi_delay, ibi_period, "IBI"),
-          
-          "Baseline-Post EDA Z-Score": BasePostRel(subjects, events_pertinent, quesdelay+1,  eda_period, "EDA Z-Score"),
-          "Baseline-Post Systolic Pressure Z-Score": BasePostRel(subjects, events_pertinent, quesdelay+3, syspress_period, "SysPress Z-Score"),
-          "Baseline-Post Resp RMS Z-Score": BasePostRel(subjects, events_pertinent, quesdelay+1, resprms_period, "RespRMS Z-Score"),
-          "Baseline-Post IBI Z-Score": BasePostRel(subjects, events_pertinent, quesdelay+4, ibi_period, "IBI Z-Score"),
+tests = { 
+#          "Pre-Post EDA": PrePostRel(subjects, events_pertinent, quesdelay+eda_delay,  eda_period, "Electrodermal Activity"),
+#          "Pre-Post Systolic Pressure": PrePostRel(subjects, events_pertinent, quesdelay+syspress_delay, syspress_period, "Systolic Pressure"),
+#          "Pre-Post Resp RMS": PrePostRel(subjects, events_pertinent, quesdelay+resprms_delay, resprms_period, "RespRMS"),
+#          "Pre-Post IBI": PrePostRel(subjects, events_pertinent, quesdelay+ibi_delay, ibi_period, "IBI"),
+#
+#          "Baseline-Post EDA": BasePostRel(subjects, events_pertinent, quesdelay+eda_delay, eda_period, "Electrodermal Activity"),
+#          "Baseline-Post Systolic Pressure": BasePostRel(subjects, events_pertinent, quesdelay+syspress_delay, syspress_period, "Systolic Pressure"),
+#          "Baseline-Post Resp RMS": BasePostRel(subjects, events_pertinent, quesdelay+resprms_delay, resprms_period, "RespRMS"),
+#          "Baseline-Post IBI": BasePostRel(subjects, events_pertinent, quesdelay+ibi_delay, ibi_period, "IBI"),
+#              
+#          
+#          "Pre-Post Mean-Max EDA": PrePostRel(subjects, events_pertinent, quesdelay+eda_delay,  eda_period, "Electrodermal Activity"),
+#          "Pre-Post Mean-Max Systolic Pressure": PrePostRel(subjects, events_pertinent, quesdelay+syspress_delay, syspress_period, "Systolic Pressure"),
+#          "Pre-Post Mean-Min Resp RMS": PrePostRel(subjects, events_pertinent, quesdelay+resprms_delay, resprms_period, "RespRMS"),
+#          "Pre-Post Mean-Min IBI": PrePostRel(subjects, events_pertinent, quesdelay+ibi_delay, ibi_period, "IBI"),
+#
+#          "Baseline-Post Mean-Max EDA": BasePostRel(subjects, events_pertinent, quesdelay+eda_delay, eda_period, "Electrodermal Activity"),
+#          "Baseline-Post Mean-Max Systolic Pressure": BasePostRel(subjects, events_pertinent, quesdelay+syspress_delay, syspress_period, "Systolic Pressure"),
+#          "Baseline-Post Mean-Min Resp RMS": BasePostRel(subjects, events_pertinent, quesdelay+resprms_delay, resprms_period, "RespRMS"),
+#          "Baseline-Post Mean-Min IBI": BasePostRel(subjects, events_pertinent, quesdelay+ibi_delay, ibi_period, "IBI"),
+#          
+          "Threshold Pos EDA Z-Score": ThreshPos(subjects, events_pertinent, quesdelay+eda_delay, eda_period, "EDA Z-Score", eda_zthresh),
+          "Threshold Pos SysPress Z-Score": ThreshPos(subjects, events_pertinent, quesdelay+syspress_delay, syspress_period, "SysPress Z-Score", syspress_zthresh),
+          "Threshold Neg RespRms Z-Score": ThreshNeg(subjects, events_pertinent, quesdelay+resprms_delay, resprms_period, "RespRMS Z-Score", resprms_zthresh),
+          "Threshold Neg IBI Z-Score": ThreshNeg(subjects, events_pertinent, quesdelay+ibi_delay, ibi_period, "IBI Z-Score", ibi_zthresh),
+        
           }
 
 test_weights = { "Pre-Post EDA":                            1.0,
@@ -563,24 +599,26 @@ test_weights = { "Pre-Post EDA":                            1.0,
                  "Pre-Post Resp RMS":                      -1.0,
                  "Pre-Post IBI":                            1.0,
                  
-                 "Pre-Post EDA Z-Score":                    1.0,
-                 "Pre-Post Systolic Pressure Z-Score":      1.0,
-                 "Pre-Post Resp RMS Z-Score":               1.0,
-                 "Pre-Post IBI Z-Score":                    1.0,
-
-                 "Pre-Post Binary EDA":                     1.0,
-                 "Pre-Post Binary Systolic Pressure":       1.0,
-                 "Pre-Post Binary IBI":                     1.0,
-                 
                  "Baseline-Post EDA":                       1.0,
                  "Baseline-Post Systolic Pressure":         1.0,
                  "Baseline-Post Resp RMS":                 -1.0,
                  "Baseline-Post IBI":                       1.0,
                  
-                 "Baseline-Post EDA Z-Score":               1.0,
-                 "Baseline-Post Systolic Pressure Z-Score": 1.0,
-                 "Baseline-Post Resp RMS Z-Score":          1.0,
-                 "Baseline-Post IBI Z-Score":               1.0}
+                 "Pre-Post Mean-Max EDA":                   1.0,
+                 "Pre-Post Mean-Max Systolic Pressure":     1.0,
+                 "Pre-Post Mean-Min Resp RMS":              1.0,
+                 "Pre-Post Mean-Min IBI":                   1.0,
+                 
+                 "Baseline-Post Mean-Max EDA":              1.0,
+                 "Baseline-Post Mean-Max Systolic Pressure":1.0,
+                 "Baseline-Post Mean-Min Resp RMS":         1.0,
+                 "Baseline-Post Mean-Min IBI":              1.0,
+                 
+                 "Threshold Pos EDA Z-Score":               1.0,
+                 "Threshold Pos SysPress Z-Score":          1.0,
+                 "Threshold Neg RespRms Z-Score":           1.0,
+                 "Threshold Neg IBI Z-Score":               1.0,
+          }
 #
 ###############################################################################
 
