@@ -238,6 +238,7 @@ class IBI(Parameter):
                           units=data.units)
         timerange= np.arange(dropped.times[0], dropped.times[-1], 0.01)
         resampled = Timeseries(dropped.interp(timerange), timerange, samplerate_Hz=100, units="seconds")
+        self.rawdata = resampled
         return lowpass(resampled, 5, 1)
         
 class RespRMS(Parameter):
@@ -614,9 +615,9 @@ test_weights = { "Pre-Post EDA":                            1.0,
                  "Baseline-Post Mean-Min Resp RMS":         1.0,
                  "Baseline-Post Mean-Min IBI":              1.0,
                  
-                 "Threshold Pos EDA Z-Score":               1.0,
-                 "Threshold Pos SysPress Z-Score":          1.0,
-                 "Threshold Neg RespRms Z-Score":           1.0,
+                 "Threshold Pos EDA Z-Score":               0.5,
+                 "Threshold Pos SysPress Z-Score":          0.75,
+                 "Threshold Neg RespRms Z-Score":           0.25,
                  "Threshold Neg IBI Z-Score":               1.0,
           }
 #
@@ -682,35 +683,35 @@ for subject in subjects:
 ###############################################################################
 # Plots
 #  
-#for subject in subjects.values(): 
-#    plt.figure(subject.name+" Blood Pressure")
-#    plt.clf()
-#    subject.signals["Blood Pressure"].plot()
-#    subject.signals["Systolic Pressure"].cleandata.plot()
-#    subject.plot_events(70)
+for subject in subjects.values(): 
+    plt.figure(subject.name+" Blood Pressure")
+    plt.clf()
+    subject.signals["Blood Pressure"].plot()
+    subject.signals["Systolic Pressure"].cleandata.plot()
+    subject.plot_events(70)
     
-#    plt.figure(subject.name+" EDA")
-#    plt.clf()
-#    subject.signals["Electrodermal Activity"].plot()
-#    subject.plot_events(10)
+    plt.figure(subject.name+" EDA")
+    plt.clf()
+    subject.signals["Electrodermal Activity"].plot()
+    subject.plot_events(10)
 #        
-#    plt.figure(subject.name+" RSP")
-#    plt.clf()
-#    subject.signals["RSP"].cleandata.plot()
-#    plt.plot(subject.signals["RSP"].peaks.times, subject.signals["RSP"].peaks.values/np.sqrt(2))
-#    subject.signals["RespRMS"].rawdata.plot()
-#    subject.plot_events(2)
+    plt.figure(subject.name+" RSP")
+    plt.clf()
+    subject.signals["RSP"].cleandata.plot()
+    plt.plot(subject.signals["RSP"].peaks.times, subject.signals["RSP"].peaks.values/np.sqrt(2))
+    subject.signals["RespRMS"].rawdata.plot()
+    subject.plot_events(2)
 #   
-#    plt.figure(subject.name+" PPG")
-#    plt.clf()
-#    subject.signals["PPG"].plot()
-#    subject.plot_events(10)
+    plt.figure(subject.name+" PPG")
+    plt.clf()
+    subject.signals["PPG"].plot()
+    subject.plot_events(10)
 #     
-#    plt.figure(subject.name+" IBI")
-#    plt.clf()
-#    subject.signals["IBI"].rawdata.plot()
-#    subject.signals["IBI"].cleandata.plot()
-#    subject.plot_events(0)
+    plt.figure(subject.name+" IBI")
+    plt.clf()
+    subject.signals["IBI"].rawdata.plot()
+    subject.signals["IBI"].cleandata.plot()
+    subject.plot_events(0)
 #
 #    plt.figure(subject.name+"IBI Z-Score")
 #    subject.signals["IBI Z-Score"].cleandata.plot()
