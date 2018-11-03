@@ -561,8 +561,8 @@ ibi_delay = 4
 ibi_period = 10
 
 eda_zthresh = 0.4
-syspress_zthresh = -0.1
-resprms_zthresh = -0.5
+syspress_zthresh = -0.5
+resprms_zthresh = -0.45
 ibi_zthresh = -0.1
 
 tests = { 
